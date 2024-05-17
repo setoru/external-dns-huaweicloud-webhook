@@ -38,6 +38,8 @@ type Config struct {
 	DryRun               bool          `env:"DRY_RUN" envDefault:"false"`
 	ConfigFile           string        `env:"CONFIG_FILE" envDefault:"/etc/kubernetes/huawei-cloud.yaml"`
 	ZoneType             string        `env:"ZONE_TYPE" envDefault:"public"`
+	TokenFile            string        `env:"TOKEN_FILE" envDefault:"/var/run/secrets/token"`
+	ZoneMatchParent      bool          `env:"ZONE_MATCH_PARENT" envDefault:"false"`
 }
 
 // Init sets up configuration by reading set environmental variables

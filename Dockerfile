@@ -1,10 +1,10 @@
-FROM golang:1.20-alpine as base
+FROM golang:1.21-alpine as base
 
 FROM base as builder
 # Work directory
 WORKDIR /build
 
-RUNgo env -w GO111MODULE=on
+RUN go env -w GO111MODULE=on
 RUN go env -w GOPROXY=https://goproxy.cn,direct
 
 # Installing dependencies

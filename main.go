@@ -44,7 +44,6 @@ const banner = `
 `
 
 func main() {
-	fmt.Printf(banner)
 	logging.Init()
 	config := configuration.Init()
 	var domainFilter endpoint.DomainFilter
@@ -69,7 +68,7 @@ func main() {
 		domainFilter = endpoint.NewDomainFilterWithExclusions(config.DomainFilter, config.ExcludeDomains)
 	}
 	zoneIDFilter := provider.NewZoneIDFilter(config.ZoneIDFilter)
-	provider, err := dnsprovider.NewHuaweiCloudProvider(domainFilter, zoneIDFilter, config.ConfigFile, config.ZoneType, config.DryRun)
+	provider, err := dnsprovider.NewHuaweiCloudProvider(domainFilter, zoneIDFilter, config.ConfigFile, config.ZoneType, config.DryRun, config.TokenFile, config.ZoneMatchParent)
 	if err != nil {
 		log.Fatalf("Failed to initialize DNS provider: %v", err)
 	}
