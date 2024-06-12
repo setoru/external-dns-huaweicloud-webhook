@@ -16,7 +16,7 @@ RUN go mod download
 COPY . .
 
 # Build our application
-RUN go build -o /external-dns-huaweicloud
+RUN go build -o /external-dns-huaweicloud ./cmd/webhook
 
 FROM alpine:latest
 

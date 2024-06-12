@@ -21,27 +21,15 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/setoru/external-dns-huaweicloud-webhook/dnsprovider"
-	"github.com/setoru/external-dns-huaweicloud-webhook/webhook"
-	"github.com/setoru/external-dns-huaweicloud-webhook/webhook/configuration"
-	"github.com/setoru/external-dns-huaweicloud-webhook/webhook/logging"
-	"github.com/setoru/external-dns-huaweicloud-webhook/webhook/server"
+	"github.com/setoru/external-dns-huaweicloud-webhook/cmd/webhook/init/configuration"
+	"github.com/setoru/external-dns-huaweicloud-webhook/cmd/webhook/init/logging"
+	"github.com/setoru/external-dns-huaweicloud-webhook/cmd/webhook/init/server"
+	"github.com/setoru/external-dns-huaweicloud-webhook/internal/dnsprovider"
+	"github.com/setoru/external-dns-huaweicloud-webhook/pkg/webhook"
 	log "github.com/sirupsen/logrus"
 	"sigs.k8s.io/external-dns/endpoint"
 	"sigs.k8s.io/external-dns/provider"
 )
-
-const banner = `
-  ________.____     ___________  _____________.___. _________
- /  _____/|    |    \_   _____/ /  _____/\__  |   |/   _____/
-/   \  ___|    |     |    __)_  \____  \  /   |   |\_____  \
-\    \_\  \    |___  |        \/        \ \____   |/        \
- \______  /_______ \/_______  /_______  / / ______/_______  /
-        \/        \/        \/        \/  \/              \/
-
- external-dns-huaweicloud
-
-`
 
 func main() {
 	logging.Init()

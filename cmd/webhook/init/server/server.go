@@ -27,8 +27,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/setoru/external-dns-huaweicloud-webhook/webhook"
-	"github.com/setoru/external-dns-huaweicloud-webhook/webhook/configuration"
+	"github.com/setoru/external-dns-huaweicloud-webhook/cmd/webhook/init/configuration"
+	"github.com/setoru/external-dns-huaweicloud-webhook/pkg/webhook"
 
 	log "github.com/sirupsen/logrus"
 )
