@@ -24,6 +24,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/huaweicloud/huaweicloud-sdk-go-v3/core/auth/basic"
 	"github.com/huaweicloud/huaweicloud-sdk-go-v3/core/config"
@@ -43,15 +44,17 @@ import (
 
 type HuaweicloudProvider struct {
 	provider.BaseProvider
-	DnsClient       HuaweiCloudDNSAPI
-	DomainFilter    endpoint.DomainFilter
-	ZoneIDFilter    provider.ZoneIDFilter // Private Zone only
-	VpcID           string                // Private Zone only
-	PrivateZone     bool
-	DryRun          bool
-	zoneMatchParent bool
-	config          *HuaweiCloudConfig
-	tokenFile       string
+	DnsClient         HuaweiCloudDNSAPI
+	DomainFilter      endpoint.DomainFilter
+	ZoneIDFilter      provider.ZoneIDFilter // Private Zone only
+	VpcID             string                // Private Zone only
+	PrivateZone       bool
+	DryRun            bool
+	zoneMatchParent   bool
+	config            *HuaweiCloudConfig
+	tokenFile         string
+	ExpirationSeconds int64
+	ExpirationTime    int64
 }
 
 type HuaweiCloudConfig struct {
@@ -69,7 +72,7 @@ type RecordListGroup struct {
 	records []dnsMdl.ListRecordSets
 }
 
-func NewHuaweiCloudProvider(domainFilter endpoint.DomainFilter, zoneIDFilter provider.ZoneIDFilter, configFile string, zoneType string, DryRun bool, tokenFile string, zoneMatchParent bool) (*HuaweicloudProvider, error) {
+func NewHuaweiCloudProvider(domainFilter endpoint.DomainFilter, zoneIDFilter provider.ZoneIDFilter, configFile string, zoneType string, DryRun bool, tokenFile string, zoneMatchParent bool, ExpirationSeconds int64) (*HuaweicloudProvider, error) {
 	cfg, err := parseConfig(configFile)
 	if err != nil {
 		return nil, err
@@ -99,15 +102,16 @@ func NewHuaweiCloudProvider(domainFilter endpoint.DomainFilter, zoneIDFilter pro
 	}
 	client = hwdns.NewDnsClient(httpClient)
 	return &HuaweicloudProvider{
-		DomainFilter:    domainFilter,
-		ZoneIDFilter:    zoneIDFilter,
-		DnsClient:       client,
-		VpcID:           cfg.VpcID,
-		PrivateZone:     zoneType == "private",
-		DryRun:          DryRun,
-		zoneMatchParent: zoneMatchParent,
-		config:          cfg,
-		tokenFile:       tokenFile,
+		DomainFilter:      domainFilter,
+		ZoneIDFilter:      zoneIDFilter,
+		DnsClient:         client,
+		VpcID:             cfg.VpcID,
+		PrivateZone:       zoneType == "private",
+		DryRun:            DryRun,
+		zoneMatchParent:   zoneMatchParent,
+		config:            cfg,
+		tokenFile:         tokenFile,
+		ExpirationSeconds: ExpirationSeconds,
 	}, nil
 }
 
@@ -116,6 +120,11 @@ func (p *HuaweicloudProvider) refreshToken() (err error) {
 		log.Debugf("use static credentials")
 		return
 	}
+	currentTime := time.Now().Unix()
+	if currentTime < p.ExpirationTime && p.ExpirationTime != 0 {
+		return
+	}
+	p.ExpirationTime = currentTime + p.ExpirationSeconds
 	log.Debugf("use Idp way")
 	var scopedToken string
 	if scopedToken, err = getTemporaryAccessKeyByIdpToken(p.tokenFile, p.config); err != nil {

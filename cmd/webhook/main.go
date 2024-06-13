@@ -56,7 +56,7 @@ func main() {
 		domainFilter = endpoint.NewDomainFilterWithExclusions(config.DomainFilter, config.ExcludeDomains)
 	}
 	zoneIDFilter := provider.NewZoneIDFilter(config.ZoneIDFilter)
-	provider, err := dnsprovider.NewHuaweiCloudProvider(domainFilter, zoneIDFilter, config.ConfigFile, config.ZoneType, config.DryRun, config.TokenFile, config.ZoneMatchParent)
+	provider, err := dnsprovider.NewHuaweiCloudProvider(domainFilter, zoneIDFilter, config.ConfigFile, config.ZoneType, config.DryRun, config.TokenFile, config.ZoneMatchParent, config.ExpirationSeconds)
 	if err != nil {
 		log.Fatalf("Failed to initialize DNS provider: %v", err)
 	}

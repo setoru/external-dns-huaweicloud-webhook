@@ -40,6 +40,7 @@ type Config struct {
 	ZoneType             string        `env:"ZONE_TYPE" envDefault:"public"`
 	TokenFile            string        `env:"TOKEN_FILE" envDefault:"/var/run/secrets/token"`
 	ZoneMatchParent      bool          `env:"ZONE_MATCH_PARENT" envDefault:"false"`
+	ExpirationSeconds    int64         `env:"EXPIRATION_SECONDS" envDefault:"7200"`
 }
 
 // Init sets up configuration by reading set environmental variables
