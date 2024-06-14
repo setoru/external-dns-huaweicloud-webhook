@@ -18,6 +18,7 @@ package dnsprovider
 
 import "github.com/huaweicloud/huaweicloud-sdk-go-v3/services/dns/v2/model"
 
+// HuaweiCloudDNSAPI is the subset of the HuaweiCloud DNS API that we actually use.  Add methods as required. Signatures must match exactly.
 type HuaweiCloudDNSAPI interface {
 	CreateRecordSet(request *model.CreateRecordSetRequest) (*model.CreateRecordSetResponse, error)
 	DeleteRecordSet(request *model.DeleteRecordSetRequest) (*model.DeleteRecordSetResponse, error)

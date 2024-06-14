@@ -42,19 +42,25 @@ import (
 	"sigs.k8s.io/external-dns/provider"
 )
 
+// HuaweicloudProvider is an implementation of Provider for HuaweiCloud DNS.
 type HuaweicloudProvider struct {
 	provider.BaseProvider
-	DnsClient         HuaweiCloudDNSAPI
-	DomainFilter      endpoint.DomainFilter
-	ZoneIDFilter      provider.ZoneIDFilter // Private Zone only
-	VpcID             string                // Private Zone only
-	PrivateZone       bool
-	DryRun            bool
-	zoneMatchParent   bool
-	config            *HuaweiCloudConfig
-	tokenFile         string
+	DomainFilter    endpoint.DomainFilter
+	ZoneIDFilter    provider.ZoneIDFilter // Private Zone only
+	DnsClient       HuaweiCloudDNSAPI
+	DryRun          bool
+	PrivateZone     bool
+	zoneMatchParent bool
+	//vpcId
+	VpcID string
+	//credentials of HuaweiCloud
+	config *HuaweiCloudConfig
+	//service account token
+	tokenFile string
+	//expiration seconds of token
 	ExpirationSeconds int64
-	ExpirationTime    int64
+	//expiration timestamp
+	ExpirationTime int64
 }
 
 type HuaweiCloudConfig struct {
