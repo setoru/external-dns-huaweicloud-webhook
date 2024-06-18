@@ -32,25 +32,6 @@ show: ## Show variables
 	@echo "IMAGE_TAG: $(IMAGE_TAG)"
 	@echo "IMAGE: $(IMAGE)"
 
-
-##@ Code analysis
-
-.PHONY: fmt
-fmt: ## Run gofumpt against code.
-	go run mvdan.cc/gofumpt -w .
-
-.PHONY: vet
-vet: ## Run go vet against code.
-	go vet ./...
-
-.PHONY: lint
-lint: ## Run golangci-lint against code.
-	mkdir -p build/reports
-	go run github.com/golangci/golangci-lint/cmd/golangci-lint run --timeout 2m
-
-.PHONY: static-analysis
-static-analysis: lint vet ## Run static analysis against code.
-
 ##@ GO
 
 .PHONY: clean
@@ -70,17 +51,9 @@ run:build ## Run the binary on local machine
 ##@ Docker
 
 .PHONY: docker-build
-docker-build: build ## Build the docker image
-	docker build ./ -f localbuild.Dockerfile -t $(IMAGE)
+docker-build:  ## Build the docker image
+	docker build ./ -f Dockerfile -t $(IMAGE)
 
 .PHONY: docker-push
 docker-push: ## Push the docker image
 	docker push $(IMAGE)
-
-##@ Test
-
-.PHONY: unit-test
-unit-test: ## Run unit tests
-	mkdir -p build/reports
-	$(GO_TEST) --junitfile build/reports/unit-test.xml -- -race ./... -count=1 -short -cover -coverprofile build/reports/unit-test-coverage.out
-
