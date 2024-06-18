@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/huaweicloud/huaweicloud-sdk-go-v3/core"
 	"github.com/huaweicloud/huaweicloud-sdk-go-v3/core/auth/basic"
 	"github.com/huaweicloud/huaweicloud-sdk-go-v3/core/config"
 	"github.com/huaweicloud/huaweicloud-sdk-go-v3/core/region"
@@ -45,24 +46,27 @@ import (
 // HuaweicloudProvider is an implementation of Provider for HuaweiCloud DNS.
 type HuaweicloudProvider struct {
 	provider.BaseProvider
-	DomainFilter    endpoint.DomainFilter
-	ZoneIDFilter    provider.ZoneIDFilter // Private Zone only
-	DnsClient       HuaweiCloudDNSAPI
-	DryRun          bool
-	PrivateZone     bool
+	// only consider hosted zones managing domains ending in this suffix
+	domainFilter endpoint.DomainFilter
+	// filter hosted zones by id
+	zoneIDFilter provider.ZoneIDFilter
+	dnsClient    HuaweiCloudDNSAPI
+	dryRun       bool
+	privateZone  bool
+	// extend filter for sub-domains in the zone
 	zoneMatchParent bool
-	//vpcId
-	VpcID string
-	//credentials of HuaweiCloud
-	config *HuaweiCloudConfig
-	//service account token
+	config          *HuaweiCloudConfig
+	//vpcId of HuaweiCloud (optional)
+	vpcID string
+	//idp token
 	tokenFile string
-	//expiration seconds of token
-	ExpirationSeconds int64
-	//expiration timestamp
-	ExpirationTime int64
+	//expiration seconds of the token
+	expirationSeconds int64
+	//expiration timestamp of the token
+	expirationTime int64
 }
 
+// HuaweiCloudConfig contains configuration to create a new HuaweiCloud provider.
 type HuaweiCloudConfig struct {
 	AccessKey     string `json:"accessKey" yaml:"accessKey"`
 	SecretKey     string `json:"secretKey" yaml:"secretKey"`
@@ -78,62 +82,80 @@ type RecordListGroup struct {
 	records []dnsMdl.ListRecordSets
 }
 
-func NewHuaweiCloudProvider(domainFilter endpoint.DomainFilter, zoneIDFilter provider.ZoneIDFilter, configFile string, zoneType string, DryRun bool, tokenFile string, zoneMatchParent bool, ExpirationSeconds int64) (*HuaweicloudProvider, error) {
+// NewHuaweiCloudProvider initializes a new HuaweiCloud based Provider.
+func NewHuaweiCloudProvider(domainFilter endpoint.DomainFilter, zoneIDFilter provider.ZoneIDFilter, configFile string, zoneType string, DryRun bool, tokenFile string, zoneMatchParent bool, expirationSeconds int64) (*HuaweicloudProvider, error) {
 	cfg, err := parseConfig(configFile)
 	if err != nil {
 		return nil, err
 	}
 
 	var client HuaweiCloudDNSAPI
-	var scopedToken string
+	var hcClient *core.HcHttpClient
+	region := region.NewRegion(cfg.Region, fmt.Sprintf("https://dns.%s.myhuaweicloud.com", cfg.Region))
 	if tokenFile != "" {
-		if scopedToken, err = getTemporaryAccessKeyByIdpToken(tokenFile, cfg); err != nil {
+		var scopedToken string
+		if scopedToken, err = getScopedTokenByIdpToken(tokenFile, cfg); err != nil {
 			return nil, err
 		}
-	}
+		tokenAuth := hwIam.NewIamCredentialsBuilder().WithXAuthToken(scopedToken).Build()
 
-	tokenAuth := hwIam.NewIamCredentialsBuilder().WithXAuthToken(scopedToken).Build()
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get correct Huawei Cloud credential")
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to get correct Huawei Cloud credential")
+		}
+		hcClient, err = hwdns.DnsClientBuilder().
+			WithRegion(region).
+			WithCredential(tokenAuth).
+			WithCredentialsType("v3.IamCredentials").
+			WithHttpConfig(config.DefaultHttpConfig()).
+			SafeBuild()
+	} else {
+		// if token is empty, use static credentials
+		basicAuth, err := basic.NewCredentialsBuilder().
+			WithAk(cfg.AccessKey).
+			WithSk(cfg.SecretKey).
+			WithSecurityToken(cfg.SecurityToken).
+			SafeBuild()
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to get basic auth")
+		}
+		hcClient, err = hwdns.DnsClientBuilder().
+			WithRegion(region).
+			WithCredential(basicAuth).
+			SafeBuild()
 	}
-	region := region.NewRegion(cfg.Region, fmt.Sprintf("https://dns.%s.myhuaweicloud.com", cfg.Region))
-	httpClient, err := hwdns.DnsClientBuilder().
-		WithRegion(region).
-		WithCredential(tokenAuth).
-		WithCredentialsType("v3.IamCredentials").
-		WithHttpConfig(config.DefaultHttpConfig()).
-		SafeBuild()
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get Huawei Cloud Client")
 	}
-	client = hwdns.NewDnsClient(httpClient)
+
+	client = hwdns.NewDnsClient(hcClient)
 	return &HuaweicloudProvider{
-		DomainFilter:      domainFilter,
-		ZoneIDFilter:      zoneIDFilter,
-		DnsClient:         client,
-		VpcID:             cfg.VpcID,
-		PrivateZone:       zoneType == "private",
-		DryRun:            DryRun,
+		domainFilter:      domainFilter,
+		zoneIDFilter:      zoneIDFilter,
+		dnsClient:         client,
+		vpcID:             cfg.VpcID,
+		privateZone:       zoneType == "private",
+		dryRun:            DryRun,
 		zoneMatchParent:   zoneMatchParent,
 		config:            cfg,
 		tokenFile:         tokenFile,
-		ExpirationSeconds: ExpirationSeconds,
+		expirationSeconds: expirationSeconds,
 	}, nil
 }
 
+// refreshToken refresh the expired token when the token expires
 func (p *HuaweicloudProvider) refreshToken() (err error) {
 	if p.tokenFile == "" {
 		log.Debugf("use static credentials")
 		return
 	}
 	currentTime := time.Now().Unix()
-	if currentTime < p.ExpirationTime && p.ExpirationTime != 0 {
+	if currentTime < p.expirationTime && p.expirationTime != 0 {
 		return
 	}
-	p.ExpirationTime = currentTime + p.ExpirationSeconds
+	p.expirationTime = currentTime + p.expirationSeconds
 	log.Debugf("use Idp way")
 	var scopedToken string
-	if scopedToken, err = getTemporaryAccessKeyByIdpToken(p.tokenFile, p.config); err != nil {
+	if scopedToken, err = getScopedTokenByIdpToken(p.tokenFile, p.config); err != nil {
 		return err
 	}
 
@@ -148,7 +170,7 @@ func (p *HuaweicloudProvider) refreshToken() (err error) {
 	if err != nil {
 		return errors.Wrapf(err, "failed to get Huawei Cloud Client")
 	}
-	p.DnsClient = hwdns.NewDnsClient(httpClient)
+	p.dnsClient = hwdns.NewDnsClient(httpClient)
 	return
 }
 
@@ -168,7 +190,7 @@ func parseConfig(configFile string) (*HuaweiCloudConfig, error) {
 	return cfg, nil
 }
 
-func getTemporaryAccessKeyByIdpToken(tokenFile string, cfg *HuaweiCloudConfig) (scopedToken string, err error) {
+func getScopedTokenByIdpToken(tokenFile string, cfg *HuaweiCloudConfig) (scopedToken string, err error) {
 	basicAuth, err := basic.NewCredentialsBuilder().
 		WithIdpId(cfg.IdpID).
 		WithIdTokenFile(tokenFile).
@@ -218,18 +240,18 @@ func (p *HuaweicloudProvider) Records(ctx context.Context) (endpoints []*endpoin
 	if err := p.refreshToken(); err != nil {
 		return nil, err
 	}
-	domainList, err := p.getDomainList()
+	zones, err := p.getZones()
 	if err != nil {
 		return nil, err
 	}
 
-	domainRecordsGroup, err := p.getDomainRecordGroup(domainList)
+	zoneRecordsGroup, err := p.getZoneRecordGroup(zones)
 	if err != nil {
 		return nil, err
 	}
 
 	endpoints = make([]*endpoint.Endpoint, 0)
-	recordMap := groupRecords(domainRecordsGroup)
+	recordMap := groupRecords(zoneRecordsGroup)
 	for _, recordList := range recordMap {
 		for _, record := range recordList.records {
 			name := cleanDomainName(*record.Name)
@@ -242,9 +264,9 @@ func (p *HuaweicloudProvider) Records(ctx context.Context) (endpoints []*endpoin
 	return endpoints, err
 }
 
-func groupRecords(domainRecordsGroup map[string]RecordListGroup) (endpointMap map[string]RecordListGroup) {
+func groupRecords(zoneRecordsGroup map[string]RecordListGroup) (endpointMap map[string]RecordListGroup) {
 	endpointMap = make(map[string]RecordListGroup)
-	for _, recordGroup := range domainRecordsGroup {
+	for _, recordGroup := range zoneRecordsGroup {
 		for _, record := range recordGroup.records {
 			key := fmt.Sprintf("%s:%s", *record.Type, *record.Name)
 			m, exist := endpointMap[key]
@@ -261,11 +283,12 @@ func groupRecords(domainRecordsGroup map[string]RecordListGroup) (endpointMap ma
 	return endpointMap
 }
 
-func (p *HuaweicloudProvider) getDomainRecordGroup(domainList []dnsMdl.PrivateZoneResp) (map[string]RecordListGroup, error) {
+// group zone and record by zone id
+func (p *HuaweicloudProvider) getZoneRecordGroup(zones []dnsMdl.PrivateZoneResp) (map[string]RecordListGroup, error) {
 	recordListGroup := make(map[string]RecordListGroup, 0)
 	var length int
-	for _, domain := range domainList {
-		recordSets, err := p.getDomainRecordList(*domain.Id)
+	for _, zone := range zones {
+		recordSets, err := p.getZoneRecordList(*zone.Id)
 		if err != nil {
 			return nil, err
 		}
@@ -279,8 +302,8 @@ func (p *HuaweicloudProvider) getDomainRecordGroup(domainList []dnsMdl.PrivateZo
 				recordSet.Records = &records
 			}
 		}
-		recordListGroup[*domain.Id] = RecordListGroup{
-			domain:  domain,
+		recordListGroup[*zone.Id] = RecordListGroup{
+			domain:  zone,
 			records: recordSets,
 		}
 		length += len(recordSets)
@@ -296,67 +319,70 @@ func (p *HuaweicloudProvider) unescapeTXTRecordValue(value string) string {
 	return value
 }
 
-func (p *HuaweicloudProvider) getDomainList() ([]dnsMdl.PrivateZoneResp, error) {
-	domainList := make([]dnsMdl.PrivateZoneResp, 0)
+// getZones returns the list of hosted zones.
+func (p *HuaweicloudProvider) getZones() ([]dnsMdl.PrivateZoneResp, error) {
+	zones := make([]dnsMdl.PrivateZoneResp, 0)
 
 	req := &dnsMdl.ListPrivateZonesRequest{}
 	req.Offset = int32Ptr(0)
 	req.Limit = int32Ptr(50)
 	totalCount := int32(50)
-	if p.PrivateZone {
+	if p.privateZone {
 		req.Type = "private"
 	}
 
 	for *req.Offset < totalCount {
-		resp, err := p.DnsClient.ListPrivateZones(req)
+		resp, err := p.dnsClient.ListPrivateZones(req)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to list domains for Huawei Cloud DNS")
+			return nil, errors.Wrap(err, "failed to list zones for Huawei Cloud DNS")
 		}
 		for _, zone := range *resp.Zones {
-			if p.DomainFilter.IsConfigured() {
-				if !p.DomainFilter.Match(*zone.Name) {
+			if p.domainFilter.IsConfigured() {
+				if !p.domainFilter.Match(*zone.Name) {
 					if !p.zoneMatchParent {
 						continue
 					}
-					if !p.DomainFilter.MatchParent(*zone.Name) {
+					if !p.domainFilter.MatchParent(*zone.Name) {
 						continue
 					}
 				}
 			}
 
-			if p.ZoneIDFilter.IsConfigured() {
-				if !p.ZoneIDFilter.Match(*zone.Id) {
+			if p.zoneIDFilter.IsConfigured() {
+				if !p.zoneIDFilter.Match(*zone.Id) {
 					continue
 				}
 			}
 
-			if p.PrivateZone {
+			if p.privateZone {
 				if !p.matchVPC(*zone.Id) {
 					continue
 				}
 			}
 
-			domainList = append(domainList, zone)
+			zones = append(zones, zone)
 		}
 		totalCount = *resp.Metadata.TotalCount
 		req.Offset = int32Ptr(*req.Offset + int32(len(*resp.Zones)))
 	}
-	return domainList, nil
+	return zones, nil
 }
 
+// matchVPC queries the VPC by zoneId and checks if it matches
 func (p *HuaweicloudProvider) matchVPC(zoneId string) bool {
-	if p.VpcID == "" {
+	// if VPC is empty, skip the check
+	if p.vpcID == "" {
 		return true
 	}
 	m := &dnsMdl.ShowPrivateZoneRequest{}
 	m.ZoneId = zoneId
-	resp, err := p.DnsClient.ShowPrivateZone(m)
+	resp, err := p.dnsClient.ShowPrivateZone(m)
 	if err != nil {
 		return false
 	}
 	foundVPC := false
 	for _, vpc := range *resp.Routers {
-		if vpc.RouterId == p.VpcID {
+		if vpc.RouterId == p.vpcID {
 			foundVPC = true
 			break
 		}
@@ -364,7 +390,8 @@ func (p *HuaweicloudProvider) matchVPC(zoneId string) bool {
 	return foundVPC
 }
 
-func (p *HuaweicloudProvider) getDomainRecordList(zoneId string) ([]dnsMdl.ListRecordSets, error) {
+// getZoneRecordList return list of records for a given zone id
+func (p *HuaweicloudProvider) getZoneRecordList(zoneId string) ([]dnsMdl.ListRecordSets, error) {
 	req := &dnsMdl.ListRecordSetsByZoneRequest{}
 	req.ZoneId = zoneId
 	req.Offset = int32Ptr(0)
@@ -373,7 +400,7 @@ func (p *HuaweicloudProvider) getDomainRecordList(zoneId string) ([]dnsMdl.ListR
 
 	recordList := make([]dnsMdl.ListRecordSets, 0)
 	for *req.Offset < totalCount {
-		resp, err := p.DnsClient.ListRecordSetsByZone(req)
+		resp, err := p.dnsClient.ListRecordSetsByZone(req)
 		if err != nil {
 			return nil, errors.Wrap(err, "fail to list records for Huawei Cloud DNS")
 		}
@@ -394,6 +421,7 @@ func (p *HuaweicloudProvider) getDomainRecordList(zoneId string) ([]dnsMdl.ListR
 	return recordList, nil
 }
 
+// equalStringSlice determines if two slices of strings are equal
 func equalStringSlice(a, b []string) bool {
 	sort.Strings(a)
 	sort.Strings(b)
@@ -422,6 +450,7 @@ func JsonWrapper(obj interface{}) string {
 	return "json_format_error"
 }
 
+// cleanDomainName removes the "." suffix
 func cleanDomainName(domain string) string {
 	return strings.TrimSuffix(domain, ".")
 }
@@ -439,13 +468,14 @@ func (p *HuaweicloudProvider) ApplyChanges(ctx context.Context, changes *plan.Ch
 		return err
 	}
 
-	domainList, err := p.getDomainList()
+	zones, err := p.getZones()
 	if err != nil {
 		return err
 	}
 	zoneNameIdMap := make(map[string][]string)
-	if p.PrivateZone && p.VpcID == "" {
-		for _, zone := range domainList {
+	if p.privateZone && p.vpcID == "" {
+		// handle private zones with the same name
+		for _, zone := range zones {
 			if _, exist := zoneNameIdMap[*zone.Name]; !exist {
 				zoneNameIdMap[*zone.Name] = make([]string, 0)
 			}
@@ -453,16 +483,16 @@ func (p *HuaweicloudProvider) ApplyChanges(ctx context.Context, changes *plan.Ch
 		}
 	}
 
-	domainRecordsGroup, err := p.getDomainRecordGroup(domainList)
+	zoneRecordsGroup, err := p.getZoneRecordGroup(zones)
 	if err != nil {
 		return err
 	}
-	if p.PrivateZone && p.VpcID == "" {
+	if p.privateZone && p.vpcID == "" {
 		log.Info("Check Huawei Cloud DNS private zone name")
 		for name, ids := range zoneNameIdMap {
 			if len(ids) > 1 {
 				for _, id := range ids {
-					delete(domainRecordsGroup, id)
+					delete(zoneRecordsGroup, id)
 				}
 				log.Errorf("Conflict: Multiple zones with same name %v,Skip it", name)
 			}
@@ -470,14 +500,14 @@ func (p *HuaweicloudProvider) ApplyChanges(ctx context.Context, changes *plan.Ch
 	}
 
 	zoneNameIDMapper := provider.ZoneIDName{}
-	for _, recordsListGroup := range domainRecordsGroup {
+	for _, recordsListGroup := range zoneRecordsGroup {
 		if *recordsListGroup.domain.Id != "" {
 			zoneNameIDMapper.Add(*recordsListGroup.domain.Id, cleanDomainName(*recordsListGroup.domain.Name))
 		}
 	}
 
 	deleteChanges := append(changes.Delete, changes.UpdateOld...)
-	deleteEndpoints := p.getDeleteRecordIdsMap(zoneNameIDMapper, deleteChanges, domainRecordsGroup)
+	deleteEndpoints := p.getDeleteRecordIdsMap(zoneNameIDMapper, deleteChanges, zoneRecordsGroup)
 	var failedZones []string
 	failedDeleteZones := p.deleteRecords(deleteEndpoints)
 	failedZones = append(failedZones, failedDeleteZones...)
@@ -519,8 +549,6 @@ func (p *HuaweicloudProvider) getDeleteRecordIdsMap(zoneNameIDMapper provider.Zo
 
 			for _, record := range recordListGroup.records {
 				if cleanDomainName(*record.Name) == cleanDomainName(deleteChange.DNSName) && *record.Type == deleteChange.RecordType {
-					//log.Debugf("record:%v", *record.Records)
-					//log.Debugf("deleteChange:%v", deleteChange.Targets)
 					if equalStringSlice(*record.Records, deleteChange.Targets) {
 						if _, exist := deleteEndpoints[zoneId]; !exist {
 							deleteEndpoints[zoneId] = make([]string, 0)
@@ -555,11 +583,11 @@ func (p *HuaweicloudProvider) createRecordByZoneId(zoneId string, endpoints []*e
 		if endpoint.RecordTTL.IsConfigured() {
 			req.Body.Ttl = int32Ptr(int32(endpoint.RecordTTL))
 		}
-		if p.DryRun {
+		if p.dryRun {
 			log.Infof("Dry run: Create %s record named '%s' to '%s' with ttl %d for Huawei Cloud DNS", endpoint.RecordType, endpoint.DNSName, endpoint.Targets, endpoint.RecordTTL)
 			continue
 		}
-		response, err := p.DnsClient.CreateRecordSet(req)
+		response, err := p.dnsClient.CreateRecordSet(req)
 		if err != nil {
 			log.Error(errors.Wrapf(err, "failed to create record %s for Huawei Cloud DNS", endpoint.DNSName))
 			return err
@@ -585,14 +613,14 @@ func (p *HuaweicloudProvider) deleteRecordsByZoneId(zoneId string, recordIds []s
 		return nil
 	}
 	for _, recordId := range recordIds {
-		if p.DryRun {
+		if p.dryRun {
 			log.Infof("Dry run: Delete record id '%s' in Huawei Cloud DNS", recordId)
 			continue
 		}
 		req := &dnsMdl.DeleteRecordSetRequest{}
 		req.ZoneId = zoneId
 		req.RecordsetId = recordId
-		response, err := p.DnsClient.DeleteRecordSet(req)
+		response, err := p.dnsClient.DeleteRecordSet(req)
 		if err != nil {
 			log.Error(errors.Wrapf(err, "failed to delete record %s in Huawei Cloud DNS", recordId))
 			return err
@@ -605,16 +633,4 @@ func (p *HuaweicloudProvider) deleteRecordsByZoneId(zoneId string, recordIds []s
 
 func int32Ptr(v int32) *int32 {
 	return &v
-}
-
-func stringPtr(v string) *string {
-	return &v
-}
-
-func stringSlicePtr(s []string) *[]string {
-	return &s
-}
-
-func boolPtr(b bool) *bool {
-	return &b
 }
