@@ -8,7 +8,7 @@ provider such as HuaweiCloud.
 Therefore, the HuaweiCloud webhook allows to manage your
 HuaweiCloud domains inside your kubernetes cluster with [ExternalDNS](https://github.com/kubernetes-sigs/external-dns).
 
-To use ExternalDNS with HuaweiCloud, you need your HuaweiCloud AccessKey&SecretKey or idp token of the account managing
+To use ExternalDNS with HuaweiCloud, you need your HuaweiCloud AccessKey&SecretKey or IdpId&IdTokenFile of the account managing
 your domains.
 
 ## Deployment
@@ -25,7 +25,7 @@ make docker-build
 
 ### Step 1: Configure IAM Permissions
 
-#### Using Federated Authentication Token
+#### Using IDP Token
 
 Configure the identity provider, refer to [this link](https://support.huaweicloud.com/bestpractice-cce/cce_bestpractice_0333.html#section3).
 
@@ -33,7 +33,7 @@ Configure the identity provider, refer to [this link](https://support.huaweiclou
 
 ```yaml
 apiVersion: v1
-kind: Secret
+kind: ConfigMap
 metadata:
   name: external-dns
 data:
@@ -95,6 +95,8 @@ spec:
               value: info
             - name: LOG_FORMAT
               value: text
+            - name: EXPIRATION_SECONDS
+              value: '7200'              
           volumeMounts:
           - mountPath: /etc/kubernetes
             name: config-volume
@@ -157,11 +159,11 @@ subjects:
 ```
 
 - `ZONE_TYPE`: Configurable for Huawei Cloud public or private domain names, with values `public` and `private`.
-- `TXT_PREFIX`: Configures the prefix for TXT records to avoid conflicts with CNAME records.
+- `TXT_PREFIX`: Configure the prefix for TXT records to avoid conflicts with CNAME records.
 - `CONFIG_FILE`: Path to the configuration file.
 - `TOKEN_FILE`: Path to the ServiceAccountToken.
-- `ZONE_MATCH_PARENT`: Configures whether to match parent domain names, with values `true` and `false`.
-
+- `ZONE_MATCH_PARENT`: Configure whether to match parent domain names, with values `true` and `false`.
+- `EXPIRATION_SECONDS`: Configure token expiration time
 ### Step 3: Verify ExternalDNS works (Service example)
 
 First, you need to create a private domain name in Huawei Cloud DNS.

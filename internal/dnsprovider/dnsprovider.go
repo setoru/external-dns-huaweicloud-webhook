@@ -121,6 +121,7 @@ func NewHuaweiCloudProvider(domainFilter endpoint.DomainFilter, zoneIDFilter pro
 		hcClient, err = hwdns.DnsClientBuilder().
 			WithRegion(region).
 			WithCredential(basicAuth).
+			WithHttpConfig(config.DefaultHttpConfig()).
 			SafeBuild()
 	}
 	if err != nil {

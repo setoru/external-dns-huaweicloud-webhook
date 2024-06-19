@@ -38,7 +38,7 @@ type Config struct {
 	DryRun               bool          `env:"DRY_RUN" envDefault:"false"`
 	ConfigFile           string        `env:"CONFIG_FILE" envDefault:"/etc/kubernetes/huawei-cloud.yaml"`
 	ZoneType             string        `env:"ZONE_TYPE" envDefault:"public"`
-	TokenFile            string        `env:"TOKEN_FILE" envDefault:"/var/run/secrets/token"`
+	TokenFile            string        `env:"TOKEN_FILE" envDefault:""`
 	ZoneMatchParent      bool          `env:"ZONE_MATCH_PARENT" envDefault:"false"`
 	ExpirationSeconds    int64         `env:"EXPIRATION_SECONDS" envDefault:"7200"`
 }
